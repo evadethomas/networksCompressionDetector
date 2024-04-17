@@ -4,6 +4,16 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <unistd.h>
+
+void sendAndRecive(int accID) {
+    char *hello = "Hi";
+    char *buffer = malloc(1024 * sizeof(char));
+    int check = read(accID, buffer, sizeof(buffer));
+    write(accID, hello, strlen(hello));
+    printf("%s\n", buffer);
+    free(buffer);
+}
 
 int main(int argc, char* argv[]) {
     int port = atoi(argv[1]);
@@ -47,14 +57,13 @@ int main(int argc, char* argv[]) {
     int client_socket, addr_len = sizeof(clientAddr);
     
     
-    int accCheck = accept(fdsocket, (struct sockaddr*) &clientAddr, &addr_len);
-    if (accCheck < 0) {
+    int accID = accept(fdsocket, (struct sockaddr*) &clientAddr, &addr_len);
+    if (accID < 0) {
         perror("Error accepting connection");
         return 1;
     }
     
-    
-    
+    sendAndRecive(accID);
     
     
     
