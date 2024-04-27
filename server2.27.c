@@ -14,8 +14,6 @@
 #include <time.h>
 #include <stdbool.h>
 
-
-
 void cleanExit(){exit(0);} 
 
 cJSON* recv_json(int accID) {
@@ -128,8 +126,8 @@ int make_udp_socket(int port, cJSON *config_json) {
     	
     	int mesCount = 0;
     	
-    	int lostPackets = 0;
-    	int lostPackets = 0;
+    	int lostPacketsTrain1 = 0;
+    	int lostPacketsTrain2 = 0;
     	
     	char *measurement_time_name = "inter_measurement_time"; 
 	cJSON *measurement_time_val = cJSON_GetObjectItem(config_json, measurement_time_name);
@@ -176,9 +174,12 @@ int make_udp_socket(int port, cJSON *config_json) {
     		
     		mesLength = recvfrom(udp_sfd, buffer, sizeof(buffer), 0, (struct sockaddr*) &clientAddr, &clientAddrLen);
     		
-    		if (mesLength <= 0) {
-    			printf("%s\n", "lost_packet");
-    			lostPackets++;
+    		if (mesLength <= 0 && mesCount < udp_packet_train_size) {
+    			printf("%s\n", "lost_packet train 1");
+    			lostPacketsTrain1++;
+    		} else if (mesLength <= 0 && mesCount < udp_packet_train_size) {
+    			printf("%s\n", "lost_packet train 2");
+    			lostPacketsTrain2++;
     		}
     		mesCount++;
     		//printf("%d\n", mesCount);
@@ -186,11 +187,20 @@ int make_udp_socket(int port, cJSON *config_json) {
     		
     	}
     	
-    	//printf("%d\n", lostPackets);
     	double dif_train_1, dif_train_2;
     	
     	dif_train_1 = ((double)(end_time_train1 - start_time_train1) / CLOCKS_PER_SEC) * 1000.0;
+    	
+    	if (lostPacketsTrain1 > 0) {
+    		dif_train_1 = dif_train_1 - (3000 * lostPacketsTrain1);
+    	}
+    	
+    	
     	dif_train_2 = ((double)(end_time_train2 - start_time_train2) / CLOCKS_PER_SEC) * 1000.0;
+    	
+    	if (lostPacketsTrain2 > 0) {
+    		dif_train_2 = dif_train_2 - (3000 * lostPacketsTrain2);
+    	}
     	
     	printf("%.2f : ", dif_train_1);
     	printf("%.2f : ", dif_train_2);
@@ -212,6 +222,77 @@ int make_udp_socket(int port, cJSON *config_json) {
 }
 
 
+int post_tcp_socket(int port, bool wasComp) {
+
+	int fdsocket = socket(PF_INET, SOCK_STREAM, PF_UNSPEC);
+	if (fdsocket == -1) {
+		printf("%s\n", "Socket creation failed");
+		return 0;
+	}
+	
+	int optval = 1;
+	
+	int setSockCheck = setsockopt(fdsocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    	
+    	if (setSockCheck < 0) {
+    		perror("Cannot reuse address");
+    		return 1;
+    	}
+	struct sockaddr_in serverAddr;
+	
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(port);
+	serverAddr.sin_addr.s_addr = INADDR_ANY;
+	
+	int bindcheck = bind(fdsocket, (struct sockaddr *) &serverAddr, sizeof(serverAddr));
+	
+	if (bindcheck < 0) {
+		perror("Cannot bind server to socket");
+		return 1;
+	} 
+	
+	int listenCheck = listen(fdsocket, 5);
+	
+	if (listenCheck < 0) {
+		perror("Error listening");
+		return 1;
+	}
+	
+	struct sockaddr_in clientAddr;
+	int client_socket, addr_len = sizeof(clientAddr);
+	
+	int accID = accept(fdsocket, (struct sockaddr*) &clientAddr, &addr_len);
+
+	
+
+	if (accID < 0) {
+		perror("Error accepting connection");
+		return 1;
+	}
+	
+	
+	char compMessage[1020];
+	
+	if (wasComp == true) {
+		char* detected = "Compression detected!";
+		strcpy(compMessage, detected);
+	} else {
+		char* detected = "No compression detected.";
+		strcpy(compMessage, detected);
+	}
+	
+	int sendCheck = send(accID, compMessage, strlen(compMessage), 0);
+	if (sendCheck < 0) {
+		perror("send fail");
+		return 1;
+	}
+	
+	close(fdsocket);
+	
+	
+	return accID;
+}
+
 
 int main(int argc, char* argv[]) {
 	int port = atoi(argv[1]);
@@ -229,12 +310,12 @@ int main(int argc, char* argv[]) {
 	
 	int udp_destination_port = udp_destination_port_val->valueint;
 	
-	bool udp_sfd = make_udp_socket(udp_destination_port, config_json);
+	bool wasComp = make_udp_socket(udp_destination_port, config_json);
 	
 	const char *post_prob_port_name = "tcp_post_probing_port";
-	cJSON *post_prob_val =  cJSON_GetObjectItem(config_json, post_prob_port_name);
+	cJSON *post_prob_port_val =  cJSON_GetObjectItem(config_json, post_prob_port_name);
 	
-	int tcpfd = post_tcp_socket(post_prob_port_name);
+	int tcpfd = post_tcp_socket(post_prob_port_val->valueint, wasComp);
 
 	cJSON_Delete(config_json);
 	
