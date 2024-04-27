@@ -10,6 +10,10 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdbool.h>
+
 
 
 void cleanExit(){exit(0);} 
@@ -40,7 +44,6 @@ int make_tcp_socket(int port) {
     		perror("Cannot reuse address");
     		return 1;
     	}
-	
 	struct sockaddr_in serverAddr;
 	
 	serverAddr.sin_family = AF_INET;
@@ -126,39 +129,89 @@ int make_udp_socket(int port, cJSON *config_json) {
     	int mesCount = 0;
     	
     	int lostPackets = 0;
+    	int lostPackets = 0;
+    	
+    	char *measurement_time_name = "inter_measurement_time"; 
+	cJSON *measurement_time_val = cJSON_GetObjectItem(config_json, measurement_time_name);
+	int measure_time = measurement_time_val->valueint;
+
+    	
+    	char *udp_packet_train_size_name = "udp_packet_train_size"; 
+	cJSON *udp_packet_train_size_val = cJSON_GetObjectItem(config_json, udp_packet_train_size_name);
+	int udp_packet_train_size = udp_packet_train_size_val->valueint;
+    	
+    	clock_t start_time_train1, end_time_train1, start_time_train2, end_time_train2;
+    	
     	while (1) {
     	
-    		
+    		if (mesCount == 0) {
+    			start_time_train1 = clock();
+    		}
     	
-    		if (mesCount == 6000) {
+    		if (mesCount == udp_packet_train_size - 1) {
     			printf("%s\n", "end of train 1");
+    			end_time_train1 = clock();
+    			sleep(15);
     		}
     		
-    		if (mesCount == 1200) {
+    		if (mesCount == udp_packet_train_size) {
+    		
+    			start_time_train2 = clock();
+    			
+    			timeout.tv_sec = 3;
+    			timeout.tv_usec = 0;
+    			if (setsockopt(udp_sfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) == -1) {
+        			perror("setsockopt failed");
+        			exit(EXIT_FAILURE);
+    			}
+    			
+    		}
+    		
+    		if (mesCount == udp_packet_train_size + udp_packet_train_size - 1) {
     			printf("%s\n", "end of second train");
+    			end_time_train2 = clock();
     			break;
+    			
     		}
-    		
     		
     		mesLength = recvfrom(udp_sfd, buffer, sizeof(buffer), 0, (struct sockaddr*) &clientAddr, &clientAddrLen);
     		
     		if (mesLength <= 0) {
     			printf("%s\n", "lost_packet");
     			lostPackets++;
-    		} else {
-    			printf("%d\n", mesLength);
-		}
-    		
+    		}
     		mesCount++;
-    		printf("%d\n", mesCount);
+    		//printf("%d\n", mesCount);
+    		
     		
     	}
     	
-    	printf("%d\n", lostPackets);
-    	return udp_sfd;
+    	//printf("%d\n", lostPackets);
+    	double dif_train_1, dif_train_2;
+    	
+    	dif_train_1 = ((double)(end_time_train1 - start_time_train1) / CLOCKS_PER_SEC) * 1000.0;
+    	dif_train_2 = ((double)(end_time_train2 - start_time_train2) / CLOCKS_PER_SEC) * 1000.0;
+    	
+    	printf("%.2f : ", dif_train_1);
+    	printf("%.2f : ", dif_train_2);
+    
+    	double difference = dif_train_2 - dif_train_1;
+    
+    	bool hasComp = false;
+    	if (difference > 100) {
+    		printf("%.2f : Compression Detected", difference);
+    		hasComp = true;
+    	} else {
+		printf("%.2f : No compression detected!", difference);
+	}
+    	close(udp_sfd);
+    	
+    	return hasComp;
     	
     	
 }
+
+
 
 int main(int argc, char* argv[]) {
 	int port = atoi(argv[1]);
@@ -174,13 +227,15 @@ int main(int argc, char* argv[]) {
 	const char *udp_destination_port_name = "udp_destination_port";
 	cJSON *udp_destination_port_val =  cJSON_GetObjectItem(config_json, udp_destination_port_name);
 	
-	
-	
 	int udp_destination_port = udp_destination_port_val->valueint;
-	//printf("%d\n", udp_destination_port);
 	
-	int udp_sfd = make_udp_socket(udp_destination_port, config_json);
-	close(udp_sfd);
+	bool udp_sfd = make_udp_socket(udp_destination_port, config_json);
 	
+	const char *post_prob_port_name = "tcp_post_probing_port";
+	cJSON *post_prob_val =  cJSON_GetObjectItem(config_json, post_prob_port_name);
+	
+	int tcpfd = post_tcp_socket(post_prob_port_name);
+
+	cJSON_Delete(config_json);
 	
 }
