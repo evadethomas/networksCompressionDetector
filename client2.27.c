@@ -231,6 +231,46 @@ int make_udp_sock(cJSON *config_json) {
 	return udpsocket;
 }
 
+int post_tcp_socket(int port, cJSON *config_json) {
+	
+	const char *ipaddrname = "server_ip_address";
+    	cJSON *server_ipaddr = cJSON_GetObjectItem(config_json, ipaddrname);
+    	
+	int fdsocket = socket(PF_INET, SOCK_STREAM, PF_UNSPEC);
+	if (fdsocket == -1) {
+		printf("%s\n", "Socket creation failed");
+		return 0;
+	}
+	
+	int optval = 1;
+	
+	struct sockaddr_in serverAddr;
+	
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(port);
+	serverAddr.sin_addr.s_addr = inet_addr(server_ipaddr->valuestring);
+	
+	int conCheck = connect(fdsocket, (struct sockaddr *) &serverAddr, sizeof(serverAddr));
+	
+	if (conCheck < 0) {
+		perror("Connect failed");
+		return 1;
+	}
+	
+	char buffer[1020];
+	
+	int check = read(fdsocket, buffer, sizeof(buffer));
+	
+	buffer[check] = '\0';
+	printf("%s\n", buffer);
+	//recive here
+	
+	return fdsocket;
+	
+}
+
+
+
 
 int main(int argc, char* argv[]) {
 
@@ -262,6 +302,12 @@ int main(int argc, char* argv[]) {
 	
 	int udpfdsocket_low = make_udp_sock(config_json);
 	close(udpfdsocket_low);
+	
+	const char *post_prob_port_name = "tcp_post_probing_port"; 
+	cJSON *post_prob_port_val =  cJSON_GetObjectItem(config_json, post_prob_port_name); 
+	
+	int tcpfd = post_tcp_socket(post_prob_port_val->valueint, config_json);
+	close(tcpfd);
 	
 	cJSON_Delete(config_json);
 
